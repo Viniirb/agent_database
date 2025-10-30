@@ -29,3 +29,6 @@ coverage/
 *~
 
 .ipynb_checkpoints
+
+chroma_db/
+*.chroma
