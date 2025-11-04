@@ -8,10 +8,6 @@ from app.config.settings import settings
 
 
 class ChromaService:
-    """
-    Serviço para gerenciar interações com ChromaDB.
-    Fornece métodos para consultas semânticas sobre metadados de banco de dados.
-    """
 
     def __init__(self):
         self.persist_directory = settings.chroma_persist_directory
@@ -20,18 +16,14 @@ class ChromaService:
         self._embedding_model = None
 
     def reset_client(self):
-        """Força reinicialização do cliente com as configurações atuais"""
         self._client = None
         self.persist_directory = settings.chroma_persist_directory
         self._initialize_client()
 
     def _initialize_client(self):
-        """Inicializa o cliente ChromaDB de forma lazy."""
         if self._client is None:
-            # Garante que o diretório existe
             os.makedirs(self.persist_directory, exist_ok=True)
 
-            # Usa PersistentClient que é a forma correta para ChromaDB persistente
             self._client = chromadb.PersistentClient(
                 path=self.persist_directory,
                 settings=ChromaSettings(
@@ -40,32 +32,20 @@ class ChromaService:
             )
 
     def _initialize_embedding_model(self):
-        """Inicializa o modelo de embeddings de forma lazy."""
         if self._embedding_model is None:
             self._embedding_model = SentenceTransformer(self.model_name)
 
     @property
     def client(self):
-        """Retorna o cliente ChromaDB, inicializando se necessário."""
         self._initialize_client()
         return self._client
 
     @property
     def embedding_model(self):
-        """Retorna o modelo de embeddings, inicializando se necessário."""
         self._initialize_embedding_model()
         return self._embedding_model
 
-    def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """
-        Gera embeddings para uma lista de textos.
-
-        Args:
-            texts: Lista de textos para gerar embeddings
-
-        Returns:
-            Lista de embeddings (vetores)
-        """
+    def generate_embeddings(self, texts: List[str], batch_size: int = 32) -> List[List[float]]:
         embeddings = self.embedding_model.encode(texts, convert_to_numpy=True)
         return embeddings.tolist()
 
