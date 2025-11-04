@@ -1,6 +1,12 @@
 from typing import List, Dict, Any
-from ..analyzer.sql_analyzer import TableInfo
 import pandas as pd
+import sys
+import os
+
+# Adiciona o diretório db_migration ao path para permitir imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from analyzer.sql_analyzer import TableInfo
 
 class DataProcessor:
     @staticmethod

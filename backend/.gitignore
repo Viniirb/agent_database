@@ -1,6 +1,4 @@
 reports/
 *.pyc
 __pycache__/
-.env
-venv/
-venvdb/
+venvback/

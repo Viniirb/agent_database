@@ -4,6 +4,7 @@ from analyzer.sql_analyzer import SQLServerAnalyzer
 from embeddings.chroma_manager import ChromaManager
 from embeddings.data_processor import DataProcessor
 from tqdm import tqdm
+import gc
 
 def build_connection_string():
     host = os.getenv('SQL_SERVER_HOST')
@@ -41,6 +42,12 @@ def main():
     print(f"🎯 ChromaDB: {chroma_dir}")
     print(f"🧠 Modelo Embeddings: {embedding_model}\n")
 
+    # Garante que o diretório ChromaDB existe
+    print(f"📁 Verificando diretório ChromaDB...", end=" ")
+    os.makedirs(chroma_dir, exist_ok=True)
+    abs_chroma_path = os.path.abspath(chroma_dir)
+    print(f"✅ {abs_chroma_path}")
+
     analyzer = SQLServerAnalyzer(connection_string)
     if not analyzer.connect():
         print("\n❌ Migração abortada devido a erro de conexão")
@@ -55,28 +62,39 @@ def main():
         print("─" * 60)
 
         total_docs = 0
-        for schema, table in tqdm(tables, desc="🔄 Migrando", ncols=60,
-                                   bar_format="{desc} {percentage:3.0f}% |{bar}| {n_fmt}/{total_fmt}"):
-            collection_name = f"{database}_{schema}_{table}".lower().replace(" ", "_")
+        failed_tables = 0
+        
+        for i, (schema, table) in enumerate(tqdm(tables, desc="🔄 Migrando", ncols=60,
+                                   bar_format="{desc} {percentage:3.0f}% |{bar}| {n_fmt}/{total_fmt}"), 1):
+            try:
+                collection_name = f"{database}_{schema}_{table}".lower().replace(" ", "_")
 
-            table_info = analyzer.analyze_table(schema, table)
+                table_info = analyzer.analyze_table(schema, table)
 
-            sample_data = None
-            if table_info.row_count > 0:
-                try:
-                    sample_data = analyzer.get_sample_data(schema, table, limit=10)
-                except:
-                    pass
+                # CORREÇÃO DRÁSTICA: Processa APENAS o schema (sem dados de exemplo)
+                # Isso evita completamente o problema de memória
+                documents = DataProcessor.table_to_documents(table_info, sample_data=None)
+                texts, metadatas = DataProcessor.prepare_for_embedding(documents)
 
-            documents = DataProcessor.table_to_documents(table_info, sample_data)
-            texts, metadatas = DataProcessor.prepare_for_embedding(documents)
-
-            chroma.add_documents(
-                collection_name=collection_name,
-                documents=texts,
-                metadatas=metadatas
-            )
-            total_docs += len(documents)
+                # Processa documento por documento para máxima segurança
+                for doc_text, doc_meta in zip(texts, metadatas):
+                    chroma.add_documents(
+                        collection_name=collection_name,
+                        documents=[doc_text],  # Um documento por vez
+                        metadatas=[doc_meta],
+                        batch_size=1  # Batch de 1 documento
+                    )
+                
+                total_docs += len(documents)
+                
+                # Força limpeza de memória a cada 50 tabelas (mais frequente)
+                if i % 50 == 0:
+                    gc.collect()
+                    
+            except Exception as e:
+                failed_tables += 1
+                # Continua processando outras tabelas mesmo se uma falhar
+                continue
 
         print("─" * 60)
         print(f"\n📊 Resumo da Migração:")
@@ -86,10 +104,19 @@ def main():
             print(f"   ✓ {col_name}: {info['count']} documentos")
 
         print(f"\n📈 Total: {len(collections)} collections | {total_docs} documentos")
+        
+        if failed_tables > 0:
+            success_rate = ((len(tables) - failed_tables) / len(tables)) * 100
+            print(f"⚠️  Tabelas com erro: {failed_tables} | Taxa de sucesso: {success_rate:.1f}%")
 
-        print("\n" + "╔" + "═" * 58 + "╗")
-        print("║" + " " * 16 + "✅ MIGRAÇÃO CONCLUÍDA!" + " " * 19 + "║")
-        print("╚" + "═" * 58 + "╝")
+        if failed_tables == 0:
+            print("\n" + "╔" + "═" * 58 + "╗")
+            print("║" + " " * 16 + "✅ MIGRAÇÃO CONCLUÍDA!" + " " * 19 + "║")
+            print("╚" + "═" * 58 + "╝")
+        else:
+            print("\n" + "╔" + "═" * 58 + "╗")
+            print("║" + " " * 12 + "⚠️  MIGRAÇÃO PARCIALMENTE CONCLUÍDA" + " " * 12 + "║")
+            print("╚" + "═" * 58 + "╝")
 
     except Exception as e:
         print(f"\n❌ Erro durante migração: {e}")
