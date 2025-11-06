@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "db_migration"
+		},
+		{
+			"path": "frontend"
 		}
 	]
 }
