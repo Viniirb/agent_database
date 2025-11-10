@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     
     chroma_persist_directory: str = str(BASE_DIR / "db_migration" / "chroma_db")
     embedding_model: str = "all-MiniLM-L6-v2"
+    
+    # Configurações Redis
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_db: int = 0
+    redis_enabled: bool = True
+    cache_ttl: int = 3600  # 1 hora
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),

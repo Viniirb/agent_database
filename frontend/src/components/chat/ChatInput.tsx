@@ -35,21 +35,21 @@ export const ChatInput = ({ onSend, disabled }: ChatInputProps) => {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Digite sua mensagem... (Shift+Enter para nova linha)"
+            placeholder="Digite sua pergunta... (Shift+Enter para nova linha)"
             disabled={disabled}
             rows={1}
             className="
-              w-full px-4 py-3 pr-12 rounded-input resize-none
-              bg-background-card border border-border
-              text-foreground placeholder:text-foreground-subtle
-              focus:border-accent-blue focus:ring-2 focus:ring-accent-blue/20
+              w-full px-4 py-3 pr-12 rounded-xl resize-none
+              bg-gray-800 border border-gray-700
+              text-gray-100 placeholder:text-gray-600
+              focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20
               transition-all duration-200
               disabled:opacity-50 disabled:cursor-not-allowed
-              max-h-32
+              max-h-32 text-sm
             "
             style={{
               height: 'auto',
-              minHeight: '48px',
+              minHeight: '44px',
             }}
             onInput={(e) => {
               const target = e.target as HTMLTextAreaElement;
@@ -62,9 +62,9 @@ export const ChatInput = ({ onSend, disabled }: ChatInputProps) => {
             type="button"
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
-            className="absolute right-3 bottom-3 p-1 hover:bg-background-hover rounded-lg transition-colors"
+            className="absolute right-3 bottom-3 p-1 hover:bg-gray-700 rounded transition-colors"
           >
-            <Paperclip size={18} className="text-foreground-muted" />
+            <Paperclip size={16} className="text-gray-500" />
           </motion.button>
         </div>
 
@@ -73,9 +73,9 @@ export const ChatInput = ({ onSend, disabled }: ChatInputProps) => {
           type="submit"
           disabled={!message.trim() || disabled}
           isLoading={disabled}
-          className="h-12 w-12 !p-0"
+          className="h-10 w-10 !p-0 rounded-xl bg-blue-600 hover:bg-blue-700 text-white"
         >
-          <Send size={18} />
+          {!disabled && <Send size={16} />}
         </Button>
       </div>
     </form>

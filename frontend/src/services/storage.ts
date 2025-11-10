@@ -71,7 +71,6 @@ class StorageService {
       const data = localStorage.getItem(STORAGE_KEYS.SETTINGS);
       return data ? JSON.parse(data) : {
         maxResults: 10,
-        selectedCollections: [],
         autoScroll: true,
         soundEnabled: false,
       };
@@ -79,7 +78,6 @@ class StorageService {
       console.error('Error loading settings:', error);
       return {
         maxResults: 10,
-        selectedCollections: [],
         autoScroll: true,
         soundEnabled: false,
       };

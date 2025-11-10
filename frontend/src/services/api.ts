@@ -1,5 +1,29 @@
 import axios, { type AxiosInstance, AxiosError } from 'axios';
-import type { ChatResponse, DatabaseStats, Collection, HealthCheck } from '../types';
+import type { 
+  ChatResponse, 
+  DatabaseStats, 
+  Collection, 
+  HealthCheck,
+  ToonsStats,
+  ConversationHistory,
+  CacheStats,
+  SchemaInfo
+} from '../types';
+
+interface ChatRequest {
+  message: string;
+  conversation_id?: string;
+  search_collections?: string[];
+  max_results?: number;
+}
+
+interface ToonsStatsResponse {
+  cache_hits: number;
+  cache_misses: number;
+  hit_rate: number;
+  total_tokens_saved: number;
+  average_compression_ratio: number;
+}
 
 class ApiService {
   private api: AxiosInstance;
@@ -38,31 +62,87 @@ class ApiService {
     }
   }
 
-  // Chat
+  // ===== CHAT & CONVERSATIONS =====
+  
   async sendMessage(
     message: string,
     conversationId?: string,
     collections?: string[],
     maxResults: number = 10
   ): Promise<ChatResponse> {
-    const response = await this.api.post('/api/chat', {
-      query: message,
+    const payload: ChatRequest = {
+      message: message,
       conversation_id: conversationId,
       max_results: maxResults,
-      collections: collections && collections.length > 0 ? collections : undefined,
-    });
+    };
+    
+    if (collections && collections.length > 0) {
+      payload.search_collections = collections;
+    }
+    
+    const response = await this.api.post('/api/chat', payload);
     return response.data;
   }
 
-  // Buscar coleções
+  async getConversationHistory(conversationId: string): Promise<ConversationHistory> {
+    const response = await this.api.get(`/api/conversations/${conversationId}/history`);
+    return response.data;
+  }
+
+  async deleteConversation(conversationId: string): Promise<void> {
+    await this.api.delete(`/api/conversations/${conversationId}`);
+  }
+
+  // ===== COLLECTIONS & SCHEMA =====
+  
   async getCollections(): Promise<Collection[]> {
     const response = await this.api.get('/api/collections');
     return response.data.collections || [];
   }
 
-  // Estatísticas
+  async getCollectionInfo(collectionName: string): Promise<Collection> {
+    const response = await this.api.get(`/api/collections/${collectionName}`);
+    return response.data;
+  }
+
+  async getSchema(): Promise<SchemaInfo> {
+    const response = await this.api.get('/api/schema');
+    return response.data;
+  }
+
+  // ===== STATISTICS =====
+  
   async getStats(): Promise<DatabaseStats> {
     const response = await this.api.get('/api/stats');
+    return response.data;
+  }
+
+  // ===== TOONS TOKEN OPTIMIZATION =====
+  
+  async getToonsStats(): Promise<ToonsStatsResponse> {
+    const response = await this.api.get('/api/toons-stats');
+    return response.data;
+  }
+
+  async resetToonsStats(): Promise<{ message: string }> {
+    const response = await this.api.post('/api/toons-reset');
+    return response.data;
+  }
+
+  async clearToonsCache(): Promise<{ message: string }> {
+    const response = await this.api.delete('/api/toons-cache');
+    return response.data;
+  }
+
+  // ===== REDIS CACHE =====
+  
+  async getCacheStats(): Promise<CacheStats> {
+    const response = await this.api.get('/api/cache-stats');
+    return response.data;
+  }
+
+  async clearCache(): Promise<{ message: string }> {
+    const response = await this.api.post('/api/cache-clear');
     return response.data;
   }
 }

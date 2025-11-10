@@ -2,10 +2,15 @@ import { useState, useCallback, useEffect } from 'react';
 import { apiService } from '../services/api';
 import { storageService } from '../services/storage';
 import { generateId } from '../utils/uuid';
-import type { Message, Conversation, Attachment } from '../types';
+import { showToast } from './useToasts';
+import type { Message, Conversation, Attachment, ChatResponse } from '../types';
+
+export interface ExtendedMessage extends Message {
+  responseData?: ChatResponse;
+}
 
 export const useChat = (conversationId?: string) => {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<ExtendedMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentConversationId, setCurrentConversationId] = useState<string>(
@@ -16,7 +21,7 @@ export const useChat = (conversationId?: string) => {
     const conversations = storageService.getConversations();
     const conversation = conversations.find(c => c.id === currentConversationId);
     if (conversation) {
-      setMessages(conversation.messages);
+      setMessages(conversation.messages as ExtendedMessage[]);
     }
   }, [currentConversationId]);
 
@@ -26,7 +31,7 @@ export const useChat = (conversationId?: string) => {
       const conversation: Conversation = {
         id: currentConversationId,
         title: messages[0]?.content.slice(0, 50) || 'Nova Conversa',
-        messages,
+        messages: messages.map(({ responseData, ...msg }) => msg),
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -38,7 +43,7 @@ export const useChat = (conversationId?: string) => {
     content: string,
     attachments?: Attachment[]
   ) => {
-    const userMessage: Message = {
+    const userMessage: ExtendedMessage = {
       id: generateId(),
       role: 'user',
       content,
@@ -55,26 +60,27 @@ export const useChat = (conversationId?: string) => {
       const response = await apiService.sendMessage(
         content,
         currentConversationId,
-        settings.selectedCollections.length > 0 
-          ? settings.selectedCollections 
-          : undefined,
+        undefined, // Deixar o IA decidir as coleções
         settings.maxResults
       );
 
-      const assistantMessage: Message = {
+      const assistantMessage: ExtendedMessage = {
         id: generateId(),
         role: 'assistant',
         content: response.response,
         timestamp: new Date(),
+        responseData: response,
       };
 
       setMessages(prev => [...prev, assistantMessage]);
+      showToast('Resposta recebida!', 'success', 2000);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
-      const errorMessage = err.response?.data?.detail || 'Falha ao enviar mensagem';
+      const errorMessage = err.response?.data?.detail || err.message || 'Falha ao enviar mensagem';
       setError(errorMessage);
+      showToast(errorMessage, 'error', 4000);
       
-      const errorMsg: Message = {
+      const errorMsg: ExtendedMessage = {
         id: generateId(),
         role: 'assistant',
         content: `❌ Erro: ${errorMessage}`,

@@ -9,25 +9,26 @@ export default {
     extend: {
       colors: {
         background: {
-          DEFAULT: '#0A0A0A',
-          card: '#1A1A1A',
-          hover: '#252525',
+          DEFAULT: '#1a1a1a',
+          card: '#2a2a2a',
+          hover: '#333333',
+          secondary: '#1f1f1f',
         },
         foreground: {
-          DEFAULT: '#FAFAFA',
-          muted: '#A1A1A1',
-          subtle: '#6B6B6B',
+          DEFAULT: '#e8e8e8',
+          muted: '#a8a8a8',
+          subtle: '#808080',
         },
         border: {
-          DEFAULT: '#2A2A2A',
-          hover: '#3A3A3A',
+          DEFAULT: '#3a3a3a',
+          hover: '#4a4a4a',
         },
         accent: {
-          blue: '#3B82F6',
-          purple: '#8B5CF6',
-          green: '#10B981',
-          red: '#EF4444',
-          yellow: '#F59E0B',
+          blue: '#4A90E2',
+          purple: '#8B7AB8',
+          green: '#52C77E',
+          red: '#FF6B6B',
+          yellow: '#FFB84D',
         },
       },
       fontFamily: {

@@ -1,5 +1,9 @@
 import { useEffect } from 'react';
+import { AppLayout } from './components/layout/AppLayout';
 import { ChatContainer } from './components/chat/ChatContainer';
+import { ToastContainer } from './components/ui/Toast';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { ChatProvider } from './contexts/ChatContext';
 import { storageService } from './services/storage';
 
 function App() {
@@ -13,9 +17,16 @@ function App() {
   }, []);
 
   return (
-    <div className="h-screen bg-background text-foreground">
-      <ChatContainer />
-    </div>
+    <ErrorBoundary>
+      <ChatProvider>
+        <div className="h-screen bg-background text-foreground">
+          <AppLayout>
+            <ChatContainer />
+          </AppLayout>
+          <ToastContainer />
+        </div>
+      </ChatProvider>
+    </ErrorBoundary>
   );
 }
 

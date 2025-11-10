@@ -1,5 +1,4 @@
 import { motion } from 'framer-motion';
-import { Bot, User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Message } from '../../types';
@@ -15,50 +14,47 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
     <motion.div
       initial={{ opacity: 0, y: 20, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      transition={{ duration: 0.3 }}
-      className={`flex gap-4 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ duration: 0.3, ease: 'easeOut' }}
+      className={`flex gap-3 mb-4 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
     >
       {/* Avatar */}
       <div className={`
-        w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0
+        w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold
         ${isUser 
-          ? 'bg-accent-blue' 
-          : 'bg-gradient-to-br from-accent-purple to-accent-blue'
+          ? 'bg-blue-600 text-white' 
+          : 'bg-gray-700 text-gray-200'
         }
       `}>
-        {isUser ? (
-          <User size={20} className="text-white" />
-        ) : (
-          <Bot size={20} className="text-white" />
-        )}
+        {isUser ? '👤' : '🤖'}
       </div>
 
-      {/* Message Content */}
-      <motion.div
-        whileHover={{ scale: 1.01 }}
-        className={`
-          flex-1 max-w-2xl card p-4
-          ${isUser ? 'bg-accent-blue/10 border-accent-blue/20' : ''}
-        `}
-      >
-        <div className="prose prose-invert prose-sm max-w-none">
+      {/* Message Card */}
+      <div className={`flex-1 max-w-2xl ${isUser ? 'text-right' : 'text-left'}`}>
+        <motion.div
+          whileHover={{ y: -2 }}
+          className={`
+            inline-block px-5 py-3 rounded-2xl text-sm leading-relaxed
+            transition-all duration-200
+            ${isUser 
+              ? 'bg-blue-600/90 text-white rounded-br-none shadow-lg' 
+              : 'bg-gray-800/80 border border-gray-700 text-gray-100 rounded-bl-none shadow-md hover:shadow-lg hover:bg-gray-800'
+            }
+          `}
+        >
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {message.content}
           </ReactMarkdown>
-        </div>
+        </motion.div>
 
         {/* Timestamp */}
-        <div className={`
-          mt-2 text-xs text-foreground-subtle
-          ${isUser ? 'text-right' : 'text-left'}
-        `}>
+        <div className="text-xs text-gray-500 mt-1.5 px-1">
           {new Date(message.timestamp).toLocaleTimeString('pt-BR', {
             hour: '2-digit',
             minute: '2-digit'
           })}
         </div>
-      </motion.div>
+      </div>
     </motion.div>
   );
 };
