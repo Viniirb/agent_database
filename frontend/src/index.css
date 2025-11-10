@@ -1,68 +1,118 @@
-:root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
-}
-
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
-}
-
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
-
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
+@layer base {
+  * {
+    @apply border-border;
   }
-  a:hover {
-    color: #747bff;
+  
+  html {
+    @apply scroll-smooth;
   }
-  button {
-    background-color: #f9f9f9;
+  
+  body {
+    @apply bg-background text-foreground;
+    @apply font-sans antialiased;
+    @apply overflow-x-hidden;
+  }
+
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-foreground-subtle/30 rounded-full;
+    @apply hover:bg-foreground-subtle/50;
+    @apply transition-colors duration-200;
+  }
+
+  ::selection {
+    @apply bg-accent-blue/30 text-foreground;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent-blue/50 ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-background-card border border-border rounded-card;
+    @apply shadow-card;
+    @apply transition-all duration-300;
+  }
+  
+  .card-hover {
+    @apply hover:bg-background-hover hover:border-border-hover;
+    @apply hover:shadow-card-hover hover:-translate-y-1;
+  }
+
+  .glass {
+    @apply bg-background-card/80 backdrop-blur-md;
+    @apply border border-border/50;
+  }
+
+  .input {
+    @apply w-full px-4 py-3 rounded-input;
+    @apply bg-background-card border border-border;
+    @apply text-foreground placeholder:text-foreground-subtle;
+    @apply focus:border-accent-blue focus:ring-2 focus:ring-accent-blue/20;
+    @apply transition-all duration-200;
+  }
+
+  .btn {
+    @apply px-4 py-2 rounded-button;
+    @apply font-medium transition-all duration-200;
+    @apply focus:outline-none focus:ring-2 focus:ring-offset-2;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply bg-accent-blue text-white;
+    @apply hover:bg-accent-blue/90;
+    @apply focus:ring-accent-blue/50;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent text-foreground-muted;
+    @apply hover:bg-background-hover hover:text-foreground;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full;
+    @apply text-xs font-medium;
+  }
+
+  .divider {
+    @apply border-t border-border;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(to right, #3B82F6, #8B5CF6);
+  }
+
+  .glow-blue {
+    @apply shadow-glow-blue;
+  }
+
+  .glow-purple {
+    @apply shadow-glow-purple;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 }
