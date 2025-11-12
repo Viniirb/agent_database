@@ -6,8 +6,31 @@ echo.
 
 cd /d "%~dp0"
 
+REM Verificar se Docker está rodando
+echo Verificando Docker...
+docker ps >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo [AVISO] Docker nao esta rodando. Dragonfly cache nao sera iniciado.
+    echo         O backend usara cache em memoria.
+    echo.
+    goto :skip_dragonfly
+)
+
+REM Iniciar Dragonfly
+echo Iniciando Dragonfly cache...
+docker-compose up -d >nul 2>&1
+if %ERRORLEVEL% EQU 0 (
+    echo [OK] Dragonfly cache iniciado com sucesso!
+    echo.
+) else (
+    echo [AVISO] Nao foi possivel iniciar Dragonfly.
+    echo         O backend usara cache em memoria.
+    echo.
+)
+
+:skip_dragonfly
 echo Ativando ambiente virtual...
-call venv\Scripts\activate.bat
+call venvback\Scripts\activate.bat
 
 echo.
 echo Iniciando servidor FastAPI...

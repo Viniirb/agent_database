@@ -9,6 +9,7 @@ from app.config.settings import settings
 from app.services.chroma_service import chroma_service
 from app.services.toons_service import toons_optimizer
 from app.services.cache_service import cache_service
+from app.utils.rate_limiter import rate_limiter
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -51,8 +52,13 @@ class ConversationHistory(BaseModel):
 
 genai.configure(api_key=settings.google_api_key)
 
-GEMINI_PRO_MODEL = "gemini-2.5-pro"
-GEMINI_FLASH_MODEL = "gemini-2.5-flash"
+# Modelos otimizados para tier gratuito (baseado em limites disponíveis)
+# gemini-2.0-flash-lite: 15 RPM, 1M TPM, 1K RPD (MELHOR opção gratuita)
+# gemini-2.5-flash: 15 RPM, 250K TPM, 200 RPD
+# gemini-2.0-flash: 15 RPM, 1M TPM, 200 RPD
+GEMINI_PRIMARY_MODEL = "gemini-2.0-flash-lite"  # Limites maiores
+GEMINI_SECONDARY_MODEL = "gemini-2.5-flash"     # Fallback 1
+GEMINI_TERTIARY_MODEL = "gemini-2.0-flash"      # Fallback 2
 
 generation_config = {
     "temperature": 0.3,
@@ -68,24 +74,53 @@ safety_settings = [
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
 ]
 
-# Cache de respostas simples e óbvias
+# Cache expandido de respostas simples e óbvias (EVITA chamadas à API)
 _simple_responses = {
+    # Saudações
     "oi": "Olá! Bem-vindo ao Agent Database. Como posso ajudá-lo?",
     "ola": "Olá! Bem-vindo ao Agent Database. Como posso ajudá-lo?",
+    "olá": "Olá! Bem-vindo ao Agent Database. Como posso ajudá-lo?",
     "hello": "Hello! Welcome to Agent Database. How can I help?",
     "hi": "Hi! Welcome to Agent Database. How can I help?",
-    "oi!": "Olá! Bem-vindo ao Agent Database. Como posso ajudá-lo?",
-    "olá!": "Olá! Bem-vindo ao Agent Database. Como posso ajudá-lo?",
+    "hey": "Hey! Welcome to Agent Database. How can I help?",
+    "bom dia": "Bom dia! Como posso ajudá-lo com o banco de dados hoje?",
+    "boa tarde": "Boa tarde! Como posso ajudá-lo com o banco de dados?",
+    "boa noite": "Boa noite! Como posso ajudá-lo com o banco de dados?",
+
+    # Agradecimentos
     "obrigado": "De nada! Estou aqui para ajudar com consultas no banco de dados.",
     "obrigada": "De nada! Estou aqui para ajudar com consultas no banco de dados.",
+    "valeu": "De nada! Precisa de mais alguma coisa?",
     "thanks": "You're welcome! I'm here to help with database queries.",
     "thank you": "You're welcome! I'm here to help with database queries.",
+    "thx": "You're welcome!",
+
+    # Informações sobre o assistente
     "qual seu nome": "Sou o Agent Database, seu assistente para consultas em banco de dados.",
     "qual é seu nome": "Sou o Agent Database, seu assistente para consultas em banco de dados.",
     "quem é você": "Sou o Agent Database, seu assistente para consultas em banco de dados.",
+    "quem e voce": "Sou o Agent Database, seu assistente para consultas em banco de dados.",
     "who are you": "I'm Agent Database, your assistant for database queries.",
+    "what's your name": "I'm Agent Database, your assistant for database queries.",
+
+    # Funcionamento
     "como você funciona": "Sou um assistente que busca informações no seu banco de dados e usa IA para responder suas perguntas.",
+    "como voce funciona": "Sou um assistente que busca informações no seu banco de dados e usa IA para responder suas perguntas.",
     "how do you work": "I'm an assistant that searches your database and uses AI to answer your questions.",
+    "what can you do": "I can help you query and understand data in your SQL Server database.",
+    "o que você faz": "Eu ajudo você a consultar e entender dados no seu banco SQL Server.",
+
+    # Despedidas
+    "tchau": "Até logo! Volte sempre que precisar de ajuda com o banco de dados.",
+    "ate logo": "Até logo! Fico à disposição.",
+    "até logo": "Até logo! Fico à disposição.",
+    "bye": "Goodbye! Come back if you need help with the database.",
+    "goodbye": "Goodbye! Come back anytime.",
+
+    # Outros
+    "ok": "Certo! Há algo mais em que posso ajudar?",
+    "teste": "Sistema funcionando! Estou pronto para ajudar com consultas no banco de dados.",
+    "test": "System working! I'm ready to help with database queries.",
 }
 
 def _check_simple_response(message: str) -> Optional[str]:
@@ -242,87 +277,66 @@ async def _generate_gemini_response(user_message: str, context: str) -> tuple[st
     # Otimiza o prompt usando TOONS
     optimization_result = toons_optimizer.optimize_prompt(system_prompt, context, user_message)
     optimized_prompt = optimization_result["optimized_prompt"]
-    
+
     logger.info(f"Prompt otimizado: original={optimization_result['original_size']} chars, "
                f"otimizado={optimization_result['optimized_size']} chars, "
                f"tokens_economizados_estimado={optimization_result['tokens_saved_estimate']}")
-    
-    try:
-        model = genai.GenerativeModel(
-            model_name=GEMINI_PRO_MODEL,
-            generation_config=generation_config,
-            safety_settings=safety_settings
-        )
 
-        response = model.generate_content(optimized_prompt)
-        
-        # Verifica se a resposta é válida
+    # Sistema de fallback em cascata: tenta Primary -> Secondary -> Tertiary
+    models_to_try = [
+        (GEMINI_PRIMARY_MODEL, "primary"),
+        (GEMINI_SECONDARY_MODEL, "secondary"),
+        (GEMINI_TERTIARY_MODEL, "tertiary")
+    ]
+
+    for model_name, model_type in models_to_try:
         try:
-            response_text = response.text
-            if response_text and response_text.strip():
-                logger.info(f"Resposta gerada com {GEMINI_PRO_MODEL} com sucesso")
-                return response_text, GEMINI_PRO_MODEL, optimization_result
-        except (AttributeError, ValueError):
-            # response.text falha quando bloqueado por segurança
-            pass
-        
-        # Se chegou aqui, resposta foi bloqueada ou vazia
-        logger.warning(f"⚠️  Resposta vazia/bloqueada do Gemini Pro, tentando Flash")
-        raise Exception("Resposta vazia ou bloqueada por filtros de segurança")
+            logger.info(f"Tentando modelo {model_type}: {model_name}")
 
-    except Exception as e:
-        error_message = str(e).lower()
+            # Aguarda rate limiter antes de fazer a requisição
+            await rate_limiter.acquire(model_name)
 
-        # Verifica se é erro de quota/rate limit
-        if any(keyword in error_message for keyword in ['quota', 'rate limit', 'resource exhausted', '429']):
-            logger.warning(f"⚠️  Gemini Pro atingiu limite, usando Gemini Flash como fallback")
+            model = genai.GenerativeModel(
+                model_name=model_name,
+                generation_config=generation_config,
+                safety_settings=safety_settings
+            )
+
+            response = model.generate_content(optimized_prompt)
+
+            # Verifica se a resposta é válida
             try:
-                model = genai.GenerativeModel(
-                    model_name=GEMINI_FLASH_MODEL,
-                    generation_config=generation_config,
-                    safety_settings=safety_settings
-                )
+                response_text = response.text
+                if response_text and response_text.strip():
+                    logger.info(f"✓ Resposta gerada com sucesso usando {model_name} ({model_type})")
+                    return response_text, model_name, optimization_result
+            except (AttributeError, ValueError):
+                logger.warning(f"⚠️  {model_name} retornou resposta vazia/bloqueada")
+                continue
 
-                response = model.generate_content(optimized_prompt)
-                
-                # Verifica se a resposta é válida
-                try:
-                    response_text = response.text
-                    if response_text and response_text.strip():
-                        logger.info(f"Resposta gerada com {GEMINI_FLASH_MODEL} como fallback")
-                        return response_text, GEMINI_FLASH_MODEL, optimization_result
-                except (AttributeError, ValueError):
-                    pass
-                
-                # Flash também retornou vazio/bloqueado
-                error_msg = "Desculpe, não consegui processar essa pergunta. Tente formular de forma diferente."
-                logger.error(f"Flash também retornou resposta vazia/bloqueada")
-                return error_msg, "error", optimization_result
+        except Exception as e:
+            error_message = str(e).lower()
 
-            except Exception as flash_error:
-                flash_error_message = str(flash_error).lower()
+            # Se for erro de quota/rate limit, tenta próximo modelo
+            if any(keyword in error_message for keyword in ['quota', 'rate limit', 'resource exhausted', '429']):
+                logger.warning(f"⚠️  {model_name} atingiu limite de rate, tentando próximo modelo...")
+                continue
 
-                if any(keyword in flash_error_message for keyword in ['quota', 'rate limit', 'resource exhausted', '429']):
-                    error_msg = ("Desculpe, ambos os modelos (Gemini Pro e Flash) atingiram o limite de uso no momento. "
-                                "Por favor, aguarde alguns minutos e tente novamente.")
-                    logger.error(f"Ambos modelos atingiram limite de quota")
-                    return error_msg, "none", optimization_result
-                else:
-                    logger.error(f"Erro no Gemini Flash: {flash_error}")
-                    error_msg = "Desculpe, houve um problema ao processar sua pergunta. Tente ser mais específico sobre o banco de dados."
-                    return error_msg, "error", optimization_result
-        
-        # Verifica se é erro de resposta vazia/bloqueada
-        elif any(keyword in error_message for keyword in ['safety', 'blocked', 'invalid operation', 'vazia', 'empty']):
-            logger.warning(f"⚠️  Requisição bloqueada por filtros de segurança ou resposta vazia")
-            error_msg = "Desculpe, não consegui processar essa pergunta. Tente formular de forma diferente, focando em informações do banco de dados."
-            return error_msg, "blocked", optimization_result
-        
-        # Outros erros
-        else:
-            logger.error(f"Erro no Gemini Pro: {e}")
-            error_msg = "Desculpe, houve um erro ao processar sua pergunta. Tente novamente."
-            return error_msg, "error", optimization_result
+            # Se for erro de segurança, tenta próximo modelo
+            elif any(keyword in error_message for keyword in ['safety', 'blocked', 'invalid operation']):
+                logger.warning(f"⚠️  {model_name} bloqueou a requisição, tentando próximo modelo...")
+                continue
+
+            # Outros erros, também tenta próximo modelo
+            else:
+                logger.error(f"Erro em {model_name}: {e}")
+                continue
+
+    # Se todos os modelos falharam
+    logger.error("❌ Todos os modelos falharam ou atingiram limites")
+    error_msg = ("Desculpe, todos os modelos estão temporariamente indisponíveis devido a limites de uso. "
+                "Por favor, aguarde alguns segundos e tente novamente.")
+    return error_msg, "all_failed", optimization_result
 
 
 @router.get("/collections")

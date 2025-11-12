@@ -7,6 +7,8 @@ import type { Message, Conversation, Attachment, ChatResponse } from '../types';
 
 export interface ExtendedMessage extends Message {
   responseData?: ChatResponse;
+  hasError?: boolean;
+  originalUserMessage?: string;
 }
 
 export const useChat = (conversationId?: string) => {
@@ -16,28 +18,45 @@ export const useChat = (conversationId?: string) => {
   const [currentConversationId, setCurrentConversationId] = useState<string>(
     conversationId || generateId()
   );
+  const [hasUserMessage, setHasUserMessage] = useState(false);
 
   useEffect(() => {
     const conversations = storageService.getConversations();
     const conversation = conversations.find(c => c.id === currentConversationId);
     if (conversation) {
       setMessages(conversation.messages as ExtendedMessage[]);
+      // Se a conversa já existe, significa que já tem mensagem do usuário
+      setHasUserMessage(true);
+    } else {
+      // Adiciona mensagem de boas-vindas automática para nova conversa
+      const greetingMessage: ExtendedMessage = {
+        id: generateId(),
+        role: 'assistant',
+        content: 'Olá! Sou o Assistente de Banco de Dados. Posso ajudá-lo a consultar informações do seu banco de dados usando linguagem natural. Como posso ajudar?',
+        timestamp: new Date(),
+      };
+      setMessages([greetingMessage]);
+      setHasUserMessage(false);
     }
   }, [currentConversationId]);
 
-  // Salvar no localStorage quando mensagens mudam
+  // Salvar no localStorage apenas após a primeira mensagem do usuário
   useEffect(() => {
-    if (messages.length > 0) {
+    if (messages.length > 0 && hasUserMessage) {
+      // Encontra a primeira mensagem do usuário para usar como título
+      const firstUserMessage = messages.find(m => m.role === 'user');
+      const title = firstUserMessage?.content.slice(0, 50) || 'Nova Conversa';
+
       const conversation: Conversation = {
         id: currentConversationId,
-        title: messages[0]?.content.slice(0, 50) || 'Nova Conversa',
+        title,
         messages: messages.map(({ responseData, ...msg }) => msg),
         createdAt: new Date(),
         updatedAt: new Date(),
       };
       storageService.saveConversation(conversation);
     }
-  }, [messages, currentConversationId]);
+  }, [messages, currentConversationId, hasUserMessage]);
 
   const sendMessage = useCallback(async (
     content: string,
@@ -52,6 +71,7 @@ export const useChat = (conversationId?: string) => {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    setHasUserMessage(true); // Marca que agora tem mensagem do usuário
     setIsLoading(true);
     setError(null);
 
@@ -85,6 +105,8 @@ export const useChat = (conversationId?: string) => {
         role: 'assistant',
         content: `❌ Erro: ${errorMessage}`,
         timestamp: new Date(),
+        hasError: true,
+        originalUserMessage: content,
       };
       setMessages(prev => [...prev, errorMsg]);
     } finally {
@@ -94,6 +116,7 @@ export const useChat = (conversationId?: string) => {
 
   const clearMessages = useCallback(() => {
     setMessages([]);
+    setHasUserMessage(false);
     const newId = generateId();
     setCurrentConversationId(newId);
   }, []);

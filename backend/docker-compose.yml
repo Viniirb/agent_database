@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly
+    container_name: dragonfly-cache
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    ulimits:
+      memlock: -1
+    volumes:
+      - dragonfly-data:/data
+    command: >
+      --logtostderr
+      --maxmemory=2gb
+      --snapshot_cron="*/30 * * * *"
+    networks:
+      - agent-network
+
+volumes:
+  dragonfly-data:
+    driver: local
+
+networks:
+  agent-network:
+    driver: bridge
