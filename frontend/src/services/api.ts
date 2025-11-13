@@ -31,7 +31,7 @@ class ApiService {
   constructor() {
     this.api = axios.create({
       baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
-      timeout: 30000,
+      timeout: 60000, // 60 segundos para aguardar fallback do backend
       headers: {
         'Content-Type': 'application/json',
       },
@@ -80,7 +80,11 @@ class ApiService {
       payload.search_collections = collections;
     }
     
-    const response = await this.api.post('/api/chat', payload);
+    // Timeout maior para mensagens de chat (90 segundos)
+    // para aguardar fallback entre modelos no backend
+    const response = await this.api.post('/api/chat', payload, {
+      timeout: 90000 // 90 segundos
+    });
     return response.data;
   }
 

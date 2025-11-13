@@ -80,6 +80,14 @@ _simple_responses = {
     "oi": "Olá! Bem-vindo ao Agent Database. Como posso ajudá-lo?",
     "ola": "Olá! Bem-vindo ao Agent Database. Como posso ajudá-lo?",
     "olá": "Olá! Bem-vindo ao Agent Database. Como posso ajudá-lo?",
+    "oi tudo bem": "Olá! Tudo bem sim, obrigado! Como posso ajudá-lo?",
+    "oi tudo bom": "Olá! Tudo ótimo! Como posso ajudá-lo?",
+    "olá tudo bem": "Olá! Tudo bem sim, obrigado! Como posso ajudá-lo?",
+    "olá tudo bom": "Olá! Tudo ótimo! Como posso ajudá-lo?",
+    "ola tudo bem": "Olá! Tudo bem sim, obrigado! Como posso ajudá-lo?",
+    "ola tudo bom": "Olá! Tudo ótimo! Como posso ajudá-lo?",
+    "tudo bem": "Tudo bem! Como posso ajudá-lo com o banco de dados?",
+    "tudo bom": "Tudo ótimo! Como posso ajudá-lo com o banco de dados?",
     "hello": "Hello! Welcome to Agent Database. How can I help?",
     "hi": "Hi! Welcome to Agent Database. How can I help?",
     "hey": "Hey! Welcome to Agent Database. How can I help?",
@@ -125,16 +133,21 @@ _simple_responses = {
 
 def _check_simple_response(message: str) -> Optional[str]:
     """Verifica se é uma pergunta simples e retorna resposta do cache."""
-    message_lower = message.lower().strip()
+    import re
+    # Remove pontuação e normaliza
+    message_clean = re.sub(r'[?.!,;:]', '', message.lower().strip())
     
     # Busca exata
-    if message_lower in _simple_responses:
-        return _simple_responses[message_lower]
+    if message_clean in _simple_responses:
+        return _simple_responses[message_clean]
     
-    # Busca parcial para mensagens com pontuação
-    for key, response in _simple_responses.items():
-        if message_lower.startswith(key) and len(message_lower) <= len(key) + 1:
-            return response
+    # Busca parcial para mensagens curtas (até 3 palavras extras)
+    words = message_clean.split()
+    if len(words) <= 6:  # Permite frases curtas como "olá tudo bom"
+        for key in _simple_responses:
+            key_words = key.split()
+            if len(key_words) > 0 and message_clean.startswith(key):
+                return _simple_responses[key]
     
     return None
 
@@ -195,20 +208,35 @@ async def chat(request: ChatRequest):
                 except Exception as e:
                     logger.error(f"Erro ao buscar na collection {collection_name}: {e}")
         else:
-            results = chroma_service.search_across_collections_optimized(
-                query_text=request.message,
-                n_results=request.max_results,
-                max_collections=50
-            )
-            search_results = results.get('results', [])
+            try:
+                # Buscar com inteligência: filtra collections relevantes
+                results = chroma_service.search_across_collections_optimized(
+                    query_text=request.message,
+                    n_results=request.max_results,
+                    max_collections=None  # None = busca inteligente por palavras-chave
+                )
+                # Garantir que results é um dicionário antes de acessar
+                if isinstance(results, dict):
+                    search_results = results.get('results', [])
+                else:
+                    logger.warning(f"search_across_collections_optimized retornou tipo inesperado: {type(results)}")
+                    search_results = []
+            except Exception as e:
+                logger.error(f"Erro ao buscar em collections: {e}")
+                search_results = []
         
         logger.info(f"Busca em ChromaDB completada: {len(search_results)} resultados encontrados")
+        
+        # Obter lista de todas as coleções disponíveis
+        all_collections = chroma_service.list_collections()
+        collection_names = [col['name'] for col in all_collections] if all_collections else []
         
         # Sempre passa para Gemini, inclusive para perguntas simples
         context = _prepare_context(search_results)
         response_text, model_used, optimization_result = await _generate_gemini_response(
             user_message=request.message,
-            context=context
+            context=context,
+            available_collections=collection_names
         )
 
         # Salvar no cache Redis
@@ -254,28 +282,80 @@ def _prepare_context(search_results: List[Dict[str, Any]]) -> str:
     if not search_results:
         return "Nenhuma informação encontrada no banco."
 
-    context_parts = ["Dados encontrados:"]
-
-    for i, result in enumerate(search_results[:3], 1):
-        doc = result['document']
+    context_parts = ["Dados encontrados no banco de dados:"]
+    
+    # Agrupa resultados por collection/tabela
+    results_by_collection = {}
+    for result in search_results:
+        col_name = result.get('collection', 'unknown')
+        if col_name not in results_by_collection:
+            results_by_collection[col_name] = []
+        results_by_collection[col_name].append(result)
+    
+    # Mostra resultados organizados por tabela
+    for col_name, results in results_by_collection.items():
+        context_parts.append(f"\nTabela: {col_name}")
         
-        if len(doc) > 200:
-            doc = doc[:200] + "..."
-        
-        context_parts.append(f"\n{i}. {doc}")
-        
-        metadata = result.get('metadata', {})
-        if metadata.get('row_count'):
-            context_parts.append(f"   ({metadata['row_count']} registros)")
+        for i, result in enumerate(results[:5], 1):  # Ate 5 resultados por tabela
+            doc = result['document']
+            
+            # Trunca documentos muito longos mas mantem mais informacao
+            if len(doc) > 500:
+                doc = doc[:500] + "..."
+            
+            context_parts.append(f"  {i}. {doc}")
+            
+            metadata = result.get('metadata', {})
+            if metadata.get('row_count'):
+                context_parts.append(f"     Total de registros na tabela: {metadata['row_count']}")
+            
+            distance = result.get('distance')
+            if distance is not None:
+                relevance = "Alta" if distance < 0.5 else "Media" if distance < 1.0 else "Baixa"
+                context_parts.append(f"     Relevancia: {relevance} (score: {distance:.3f})")
 
     return "\n".join(context_parts)
 
 
-async def _generate_gemini_response(user_message: str, context: str) -> tuple[str, str, Dict[str, Any]]:
-    system_prompt = """Assistente de banco de dados SQL Server. Responda de forma direta e concisa baseado no contexto fornecido. Se não souber, diga claramente."""
+async def _generate_gemini_response(user_message: str, context: str, available_collections: List[str] = None) -> tuple[str, str, Dict[str, Any]]:
+    # Lista as coleções/tabelas disponíveis no prompt
+    collections_info = ""
+    num_collections = len(available_collections) if available_collections else 0
+    
+    if available_collections and num_collections <= 100:
+        # Se tem poucas tabelas, lista todas
+        collections_info = f"\n\nTABELAS DISPONIVEIS NO BANCO ({num_collections} tabelas):\n" + "\n".join([f"  - {col}" for col in available_collections[:100]])
+        if num_collections > 100:
+            collections_info += f"\n  ... e mais {num_collections - 100} tabelas"
+    elif available_collections:
+        # Se tem muitas tabelas, mostra apenas a quantidade e as primeiras
+        collections_info = f"\n\nBANCO DE DADOS: {num_collections} tabelas disponiveis\nPrimeiras tabelas: " + ", ".join(available_collections[:20])
+    
+    # Monta o prompt completo incluindo tudo
+    full_prompt = f"""ASSISTENTE DE BANCO DE DADOS SQL SERVER
 
-    # Otimiza o prompt usando TOONS
-    optimization_result = toons_optimizer.optimize_prompt(system_prompt, context, user_message)
+REGRAS IMPORTANTES:
+1. Voce e um assistente especializado em consultar e analisar dados de SQL Server
+2. Responda APENAS com base no CONTEXTO fornecido abaixo
+3. NUNCA invente, suponha ou adivinhe nomes de tabelas ou dados
+4. Se uma tabela NAO aparecer no contexto fornecido, diga que nao tem acesso a ela
+5. Seja direto, claro e preciso nas respostas
+6. Se nao encontrar informacoes suficientes, diga claramente
+
+{collections_info}
+
+ATENCAO: As tabelas listadas acima sao TODAS as tabelas que existem no banco. Se o usuario perguntar sobre uma tabela que NAO esta na lista, informe que ela nao existe ou nao esta disponivel.
+
+CONTEXTO DA BUSCA:
+{context}
+
+PERGUNTA DO USUARIO:
+{user_message}
+
+Responda de forma clara e objetiva baseado EXCLUSIVAMENTE no contexto acima."""
+
+    # Otimiza o prompt usando TOONS - passa o prompt completo
+    optimization_result = toons_optimizer.optimize_prompt(full_prompt, "", "")
     optimized_prompt = optimization_result["optimized_prompt"]
 
     logger.info(f"Prompt otimizado: original={optimization_result['original_size']} chars, "

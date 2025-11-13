@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare,
@@ -21,6 +21,14 @@ export const Sidebar = ({ isCollapsed, onToggle }: SidebarProps) => {
     storageService.getConversations()
   );
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Recarregar conversas quando mudar a conversa ativa ou a cada segundo
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setConversations(storageService.getConversations());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const filteredConversations = conversations.filter(conv =>
     conv.title.toLowerCase().includes(searchTerm.toLowerCase())

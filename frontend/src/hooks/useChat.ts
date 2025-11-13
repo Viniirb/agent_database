@@ -20,6 +20,13 @@ export const useChat = (conversationId?: string) => {
   );
   const [hasUserMessage, setHasUserMessage] = useState(false);
 
+  // Listener para mudança de conversação ativa (quando clica na sidebar)
+  useEffect(() => {
+    if (conversationId && conversationId !== currentConversationId) {
+      setCurrentConversationId(conversationId);
+    }
+  }, [conversationId]);
+
   useEffect(() => {
     const conversations = storageService.getConversations();
     const conversation = conversations.find(c => c.id === currentConversationId);

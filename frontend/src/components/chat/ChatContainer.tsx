@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, MessageCircle, Sparkles } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
@@ -10,11 +10,32 @@ export const ChatContainer = () => {
   const { activeConversationId } = useActiveConversation();
   const { messages, isLoading, sendMessage } = useChat(activeConversationId || undefined);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [lastMessageId, setLastMessageId] = useState<string | null>(null);
+  const [loadingTime, setLoadingTime] = useState(0);
 
-  // Auto scroll para última mensagem
+  // Auto scroll para última mensagem e atualizar última mensagem
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messages.length > 0) {
+      setLastMessageId(messages[messages.length - 1].id);
+    }
   }, [messages]);
+
+  // Timer para tracking do tempo de carregamento
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isLoading) {
+      setLoadingTime(0);
+      interval = setInterval(() => {
+        setLoadingTime(prev => prev + 1);
+      }, 1000);
+    } else {
+      setLoadingTime(0);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isLoading]);
 
   return (
     <div className="h-full flex flex-col content-layer relative">
@@ -84,11 +105,12 @@ export const ChatContainer = () => {
 
           <AnimatePresence mode="popLayout">
             {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            {messages.map((message: any) => (
+            {messages.map((message: any, index: number) => (
               <MessageBubble
                 key={message.id}
                 message={message}
                 onRetry={sendMessage}
+                isNew={message.id === lastMessageId && message.role === 'assistant'}
               />
             ))}
           </AnimatePresence>
@@ -98,26 +120,41 @@ export const ChatContainer = () => {
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="flex items-center gap-3 text-foreground-muted text-sm ml-11"
+              className="flex flex-col gap-2 ml-11"
             >
-              <div className="flex items-center gap-1">
-                <motion.div
-                  animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
-                  transition={{ repeat: Infinity, duration: 1, delay: 0 }}
-                  className="w-2 h-2 rounded-full bg-accent-blue"
-                />
-                <motion.div
-                  animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
-                  transition={{ repeat: Infinity, duration: 1, delay: 0.2 }}
-                  className="w-2 h-2 rounded-full bg-accent-purple"
-                />
-                <motion.div
-                  animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
-                  transition={{ repeat: Infinity, duration: 1, delay: 0.4 }}
-                  className="w-2 h-2 rounded-full bg-accent-pink"
-                />
+              <div className="flex items-center gap-3 text-foreground-muted text-sm">
+                <div className="flex items-center gap-1">
+                  <motion.div
+                    animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
+                    transition={{ repeat: Infinity, duration: 1, delay: 0 }}
+                    className="w-2 h-2 rounded-full bg-accent-blue"
+                  />
+                  <motion.div
+                    animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
+                    transition={{ repeat: Infinity, duration: 1, delay: 0.2 }}
+                    className="w-2 h-2 rounded-full bg-accent-purple"
+                  />
+                  <motion.div
+                    animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
+                    transition={{ repeat: Infinity, duration: 1, delay: 0.4 }}
+                    className="w-2 h-2 rounded-full bg-accent-pink"
+                  />
+                </div>
+                <span className="text-foreground-muted">
+                  {loadingTime < 25 ? 'Pensando...' : loadingTime < 40 ? 'Aguarde, processando...' : 'Tentando modelo alternativo...'}
+                </span>
               </div>
-              <span className="text-foreground-muted">Pensando...</span>
+              {loadingTime >= 25 && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  className="text-xs text-foreground-subtle italic"
+                >
+                  {loadingTime < 40 
+                    ? 'Esta consulta pode demorar um pouco mais...' 
+                    : 'O sistema está tentando um modelo alternativo para melhor resultado...'}
+                </motion.div>
+              )}
             </motion.div>
           )}
 

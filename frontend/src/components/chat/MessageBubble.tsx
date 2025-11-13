@@ -1,19 +1,39 @@
 import { motion } from 'framer-motion';
+import { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { RefreshCw } from 'lucide-react';
 import type { Message } from '../../types';
 import type { ExtendedMessage } from '../../hooks/useChat';
+import { useTypingEffect } from '../../hooks/useTypingEffect';
 
 interface MessageBubbleProps {
   message: Message;
   onRetry?: (content: string) => void;
+  isNew?: boolean;
 }
 
-export const MessageBubble = ({ message, onRetry }: MessageBubbleProps) => {
+export const MessageBubble = ({ message, onRetry, isNew = false }: MessageBubbleProps) => {
   const isUser = message.role === 'user';
   const extendedMessage = message as ExtendedMessage;
   const hasError = extendedMessage.hasError;
+  const [shouldAnimate, setShouldAnimate] = useState(isNew && !isUser && !hasError);
+
+  // Desabilitar animação após primeira renderização
+  useEffect(() => {
+    if (shouldAnimate) {
+      const timer = setTimeout(() => setShouldAnimate(false), message.content.length * 30 + 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [shouldAnimate, message.content.length]);
+
+  const { displayedText, isTyping } = useTypingEffect({
+    text: message.content,
+    speed: 20,
+    enabled: shouldAnimate
+  });
+
+  const contentToShow = shouldAnimate ? displayedText : message.content;
 
   return (
     <motion.div
@@ -53,8 +73,17 @@ export const MessageBubble = ({ message, onRetry }: MessageBubbleProps) => {
         >
           <div className={isUser ? '' : 'prose prose-invert max-w-none'}>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {message.content}
+              {contentToShow}
             </ReactMarkdown>
+            {isTyping && (
+              <motion.span
+                animate={{ opacity: [1, 0, 1] }}
+                transition={{ repeat: Infinity, duration: 0.8 }}
+                className="inline-block ml-1 text-accent-blue"
+              >
+                ▉
+              </motion.span>
+            )}
           </div>
         </motion.div>
 
@@ -72,9 +101,16 @@ export const MessageBubble = ({ message, onRetry }: MessageBubbleProps) => {
             })}
           </span>
           {!isUser && !hasError && (
-            <span className="badge badge-purple">
-              AI
-            </span>
+            <>
+              <span className="badge badge-purple">
+                AI
+              </span>
+              {extendedMessage.responseData?.model_used && (
+                <span className="badge badge-blue text-[10px]">
+                  {extendedMessage.responseData.model_used.includes('2.5') ? '2.5' : '2.0'}
+                </span>
+              )}
+            </>
           )}
           {hasError && extendedMessage.originalUserMessage && onRetry && (
             <motion.button

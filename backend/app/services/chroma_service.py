@@ -49,15 +49,15 @@ class ChromaService:
         embeddings = self.embedding_model.encode(texts, convert_to_numpy=True)
         return embeddings.tolist()
 
-    def list_collections(self) -> List[str]:
+    def list_collections(self) -> List[Dict[str, Any]]:
         """
         Lista todas as collections disponíveis no ChromaDB.
 
         Returns:
-            Lista com nomes das collections
+            Lista com informações das collections (nome e metadados)
         """
         collections = self.client.list_collections()
-        return [col.name for col in collections]
+        return [{'name': col.name, 'metadata': col.metadata} for col in collections]
 
     def get_collection_info(self, collection_name: str) -> Dict[str, Any]:
         """
@@ -97,10 +97,11 @@ class ChromaService:
         """
         all_results = []
         collections = self.list_collections()
+        collection_names = [col['name'] for col in collections]
 
         query_embedding = self.generate_embeddings([query_text])[0]
 
-        for collection_name in collections:
+        for collection_name in collection_names:
             try:
                 results = self.query_collection(
                     collection_name=collection_name,
@@ -126,7 +127,7 @@ class ChromaService:
 
         return {
             'query': query_text,
-            'total_collections_searched': len(collections),
+            'total_collections_searched': len(collection_names),
             'total_results': len(all_results),
             'results': all_results[:n_results * 2]  # Retorna mais resultados agregados
         }
@@ -176,7 +177,8 @@ class ChromaService:
         # Para 5000+ collections, é impraticável contar documentos de todas
         max_detailed = 50
         
-        for i, col_name in enumerate(collections):
+        for i, col_info in enumerate(collections):
+            col_name = col_info['name']
             if i < max_detailed:
                 # Informações detalhadas apenas para as primeiras
                 info = self.get_collection_info(col_name)
@@ -197,10 +199,11 @@ class ChromaService:
         Ideal para grandes volumes de collections.
         """
         collections = self.list_collections()
+        collection_names = [col['name'] for col in collections]
         
         # Amostra aleatória para estimativa
-        sample_size = min(10, len(collections))
-        sample_collections = collections[:sample_size] if collections else []
+        sample_size = min(10, len(collection_names))
+        sample_collections = collection_names[:sample_size] if collection_names else []
         
         total_docs_sample = 0
         for col_name in sample_collections:
@@ -213,10 +216,10 @@ class ChromaService:
         
         # Estimativa baseada na amostra
         avg_docs = total_docs_sample / sample_size if sample_size > 0 else 0
-        estimated_total_docs = int(avg_docs * len(collections))
+        estimated_total_docs = int(avg_docs * len(collection_names))
         
         return {
-            'total_collections': len(collections),
+            'total_collections': len(collection_names),
             'estimated_total_documents': estimated_total_docs,
             'sample_size': sample_size,
             'sample_collections': sample_collections[:5],  # Primeiras 5 para exemplo
@@ -227,18 +230,42 @@ class ChromaService:
         self,
         query_text: str,
         n_results: int = 3,
-        max_collections: int = 50
+        max_collections: Optional[int] = 50
     ) -> Dict[str, Any]:
         """
-        Busca OTIMIZADA - apenas nas primeiras collections para economizar recursos.
-        Ideal para bancos com milhares de collections.
+        Busca OTIMIZADA em collections.
+        Usa busca inteligente: filtra collections por palavras-chave antes de buscar.
         """
         all_results = []
-        collections = self.list_collections()[:max_collections]  # Limita collections
+        all_collections_list = self.list_collections()
+        
+        # OTIMIZAÇÃO INTELIGENTE: Se max_collections é None, busca por relevância
+        if max_collections is None:
+            # Extrai palavras-chave da query (remove stopwords básicas)
+            stopwords = {'o', 'a', 'os', 'as', 'de', 'da', 'do', 'em', 'para', 'com', 'por', 'qual', 'quais', 'me', 'mostre', 'liste', 'buscar', 'encontrar'}
+            keywords = [word.lower() for word in query_text.split() if word.lower() not in stopwords and len(word) > 2]
+            
+            # Filtra collections que contêm palavras-chave no nome
+            relevant_collections = []
+            for col in all_collections_list:
+                col_name_lower = col['name'].lower()
+                # Verifica se alguma keyword aparece no nome da collection
+                if any(keyword in col_name_lower for keyword in keywords):
+                    relevant_collections.append(col)
+            
+            # Se encontrou collections relevantes, usa elas. Senão, usa as primeiras 100
+            if relevant_collections:
+                collections = relevant_collections[:100]  # Limita a 100 para segurança
+            else:
+                collections = all_collections_list[:100]  # Fallback: primeiras 100
+        else:
+            collections = all_collections_list[:max_collections]
+        
+        collection_names = [col['name'] for col in collections]
         
         query_embedding = self.generate_embeddings([query_text])[0]
 
-        for collection_name in collections:
+        for collection_name in collection_names:
             try:
                 results = self.query_collection(
                     collection_name=collection_name,
@@ -257,15 +284,19 @@ class ChromaService:
             except Exception:
                 continue  # Ignora erros silenciosamente para performance
 
-        # Ordena por relevância e retorna apenas os melhores
+        # Ordena por relevância e retorna os melhores resultados
         all_results.sort(key=lambda x: x.get('distance', float('inf')))
+        
+        # Retorna mais resultados se a busca for em todas as collections
+        results_limit = n_results * 3 if max_collections is None else n_results
 
         return {
             'query': query_text,
-            'collections_searched': len(collections),
+            'collections_searched': len(collection_names),
+            'total_collections_available': len(all_collections_list),
             'total_results': len(all_results),
-            'results': all_results[:n_results],  # Retorna apenas os mais relevantes
-            'optimization': f'Busca limitada a {max_collections} collections para performance'
+            'results': all_results[:results_limit],
+            'optimization': 'Busca em TODAS as collections' if max_collections is None else f'Busca limitada a {max_collections} collections'
         }
 
 
