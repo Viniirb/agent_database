@@ -10,6 +10,7 @@ import {
   DialogBody,
   DialogClose
 } from '@/components/ui';
+import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { useActiveConversation } from '@/contexts/ChatContext';
 import { SessionStats } from '@/components/chat/SessionStats';
 import { storageService } from '@/services/storage';
@@ -51,6 +52,9 @@ export const Header = ({ onNewChat }: HeaderProps) => {
 
           {/* Botões de ação */}
           <div className="flex items-center gap-2">
+            {/* Theme Toggle */}
+            <ThemeToggle />
+            
             {/* Botão de Nova Conversa */}
             <motion.button
               whileHover={{ scale: 1.05, y: -2 }}

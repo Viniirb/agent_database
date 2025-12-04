@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, MessageCircle, Sparkles } from 'lucide-react';
+import { MessageCircle, Sparkles } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
 import { useChat } from '../../hooks/useChat';
@@ -23,7 +23,7 @@ export const ChatContainer = () => {
 
   // Timer para tracking do tempo de carregamento
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setInterval> | undefined;
     if (isLoading) {
       setLoadingTime(0);
       interval = setInterval(() => {
@@ -105,7 +105,7 @@ export const ChatContainer = () => {
 
           <AnimatePresence mode="popLayout">
             {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            {messages.map((message: any, index: number) => (
+            {messages.map((message: any) => (
               <MessageBubble
                 key={message.id}
                 message={message}

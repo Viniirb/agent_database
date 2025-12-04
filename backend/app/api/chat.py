@@ -1,24 +1,54 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, validator
 from typing import List, Dict, Any, Optional
 import uuid
 import google.generativeai as genai
 import logging
+import json
+from datetime import datetime
 
 from app.config.settings import settings
 from app.services.chroma_service import chroma_service
 from app.services.toons_service import toons_optimizer
 from app.services.cache_service import cache_service
 from app.utils.rate_limiter import rate_limiter
+from app.utils.circuit_breaker import CircuitBreaker, CircuitBreakerError
+from app.utils.metrics import metrics_collector, Timer
+from app.utils.validators import InputValidator
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Circuit breaker para Gemini API
+gemini_circuit_breaker = CircuitBreaker(
+    failure_threshold=3,
+    recovery_timeout=60,
+    expected_exception=Exception,
+    name="GeminiAPI"
+)
 
 class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[str] = None
     search_collections: Optional[List[str]] = None
     max_results: int = 3
+    
+    @validator('message')
+    def validate_message(cls, v):
+        is_valid, error = InputValidator.validate_chat_message(v)
+        if not is_valid:
+            raise ValueError(error)
+        return InputValidator.sanitize_string(v)
+    
+    @validator('conversation_id')
+    def validate_conversation_id(cls, v):
+        if v is None:
+            return v
+        is_valid, error = InputValidator.validate_conversation_id(v)
+        if not is_valid:
+            raise ValueError(error)
+        return v
 
 
 class SearchResult(BaseModel):
@@ -153,21 +183,25 @@ def _check_simple_response(message: str) -> Optional[str]:
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
+    metrics_collector.increment_counter("chat.requests.total")
+    
     try:
-        conversation_id = request.conversation_id or str(uuid.uuid4())
-        logger.info(f"Iniciando chat: conversation_id={conversation_id}, message_length={len(request.message)}")
+        with Timer(metrics_collector, "chat.request.duration"):
+            conversation_id = request.conversation_id or str(uuid.uuid4())
+            logger.info(f"Iniciando chat: conversation_id={conversation_id}, message_length={len(request.message)}")
         
-        # Verifica se é uma pergunta simples primeiro
-        simple_response = _check_simple_response(request.message)
-        if simple_response:
-            logger.info("Resposta simples encontrada no cache")
-            return ChatResponse(
-                response=simple_response,
-                conversation_id=conversation_id,
-                search_results=[],
-                collections_searched=0,
-                model_used="simple_cache",
-                token_optimization={"cached": True},
+            # Verifica se é uma pergunta simples primeiro
+            simple_response = _check_simple_response(request.message)
+            if simple_response:
+                logger.info("Resposta simples encontrada no cache")
+                metrics_collector.increment_counter("chat.cache.simple_hit")
+                return ChatResponse(
+                    response=simple_response,
+                    conversation_id=conversation_id,
+                    search_results=[],
+                    collections_searched=0,
+                    model_used="simple_cache",
+                    token_optimization={"cached": True},
                 from_cache=True
             )
         
@@ -544,4 +578,106 @@ async def clear_all_cache():
         raise
     except Exception as e:
         logger.error(f"Erro ao limpar cache: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/conversations/{conversation_id}/export")
+async def export_conversation(
+    conversation_id: str,
+    format: str = Query(default="markdown", regex="^(json|markdown|txt)$")
+):
+    """
+    Exporta uma conversa em diferentes formatos.
+
+    Args:
+        conversation_id: ID da conversa
+        format: Formato de exportação (json, markdown, txt)
+
+    Returns:
+        Arquivo com a conversa exportada
+    """
+    try:
+        from fastapi.responses import Response
+
+        # Busca a conversa
+        messages = cache_service.get_conversation_history(conversation_id, limit=1000)
+
+        if not messages:
+            raise HTTPException(status_code=404, detail="Conversa não encontrada")
+
+        # Prepara o conteúdo baseado no formato
+        if format == "json":
+            content = json.dumps({
+                "conversation_id": conversation_id,
+                "messages": messages,
+                "exported_at": datetime.now().isoformat()
+            }, indent=2, ensure_ascii=False)
+            media_type = "application/json"
+            extension = "json"
+
+        elif format == "markdown":
+            lines = [
+                f"# Conversa: {conversation_id}",
+                f"**Exportado em:** {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}",
+                "",
+                "---",
+                ""
+            ]
+
+            for msg in messages:
+                role = "👤 Usuário" if msg["role"] == "user" else "🤖 Assistente"
+                timestamp = msg.get("timestamp", "")
+                lines.append(f"## {role}")
+                if timestamp:
+                    lines.append(f"*{timestamp}*")
+                lines.append("")
+                lines.append(msg["content"])
+                lines.append("")
+                lines.append("---")
+                lines.append("")
+
+            content = "\n".join(lines)
+            media_type = "text/markdown"
+            extension = "md"
+
+        else:  # txt
+            lines = [
+                f"Conversa: {conversation_id}",
+                f"Exportado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}",
+                "",
+                "=" * 80,
+                ""
+            ]
+
+            for msg in messages:
+                role = "USUÁRIO" if msg["role"] == "user" else "ASSISTENTE"
+                timestamp = msg.get("timestamp", "")
+                lines.append(f"[{role}]")
+                if timestamp:
+                    lines.append(f"Timestamp: {timestamp}")
+                lines.append("")
+                lines.append(msg["content"])
+                lines.append("")
+                lines.append("-" * 80)
+                lines.append("")
+
+            content = "\n".join(lines)
+            media_type = "text/plain"
+            extension = "txt"
+
+        # Retorna o arquivo
+        filename = f"conversation_{conversation_id[:8]}.{extension}"
+
+        return Response(
+            content=content.encode('utf-8'),
+            media_type=f"{media_type}; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao exportar conversa: {e}")
         raise HTTPException(status_code=500, detail=str(e))

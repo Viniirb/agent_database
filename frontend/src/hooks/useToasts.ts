@@ -26,16 +26,16 @@ export const useToasts = (maxToasts = 5) => {
       setToasts(prev => [toast, ...prev].slice(0, maxToasts));
 
       if (toast.duration && toast.duration > 0) {
-        const timer = setTimeout(() => {
+        setTimeout(() => {
           setToasts(prev => prev.filter(t => t.id !== toast.id));
         }, toast.duration);
-
-        return () => clearTimeout(timer);
       }
     };
 
     listeners.add(handleShowToast);
-    return () => listeners.delete(handleShowToast);
+    return () => {
+      listeners.delete(handleShowToast);
+    };
   }, [maxToasts]);
 
   const removeToast = (id: string) => {

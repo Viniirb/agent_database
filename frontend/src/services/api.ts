@@ -1,10 +1,9 @@
 import axios, { type AxiosInstance, AxiosError } from 'axios';
-import type { 
-  ChatResponse, 
-  DatabaseStats, 
-  Collection, 
+import type {
+  ChatResponse,
+  DatabaseStats,
+  Collection,
   HealthCheck,
-  ToonsStats,
   ConversationHistory,
   CacheStats,
   SchemaInfo
